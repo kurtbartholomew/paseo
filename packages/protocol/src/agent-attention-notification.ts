@@ -25,6 +25,9 @@ interface BuildAgentAttentionNotificationPayloadInput {
   permissionRequest?: NotificationPermissionRequest | null;
   // Drop the message or permission preview and send only the fixed body.
   redactContent?: boolean;
+  // A caller's own text for the body, whatever the reason: it replaces the assistant message or the
+  // permission details. Blank text falls back to the fixed body. Redaction drops it too.
+  customMessage?: string | null;
 }
 
 export interface NotificationPermissionRequest {
@@ -187,6 +190,9 @@ function resolveAgentAttentionPreview(
 ): string | null {
   if (input.redactContent) {
     return null;
+  }
+  if (typeof input.customMessage === "string") {
+    return buildNotificationPreview(input.customMessage);
   }
   if (input.reason === "finished") {
     return buildNotificationPreview(input.assistantMessage);

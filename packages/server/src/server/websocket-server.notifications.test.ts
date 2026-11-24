@@ -54,6 +54,11 @@ interface WebSocketServerInternals {
     providerId?: string;
     timestamp?: string;
   }): Promise<void>;
+  requestAgentAttention(request: {
+    agentId: string;
+    reason: "finished" | "error" | "permission";
+    message: string;
+  }): Promise<void>;
 }
 
 function createLogger() {
@@ -529,5 +534,147 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
     await broadcast();
     await broadcast();
     expect(pushNotifications.sent).toHaveLength(1);
+  });
+  it("pushes a requested error alert with the caller's message as its body", async () => {
+    const getLastAssistantMessage = vi.fn(async () => "The agent's own last message.");
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        provider: "claude",
+        workspaceId: WORKSPACE_ID,
+        pendingPermissions: new Map(),
+      })),
+      getLastAssistantMessage,
+    });
+    const ws = connectClient(server, null);
+
+    await asInternals<WebSocketServerInternals>(server).requestAgentAttention({
+      agentId: "agent-1",
+      reason: "error",
+      message: "The **nightly build** failed.",
+    });
+
+    const expected = {
+      title: "Agent needs attention",
+      body: "The nightly build failed.",
+      data: {
+        serverId: "srv-test",
+        workspaceId: WORKSPACE_ID,
+        agentId: "agent-1",
+        reason: "error",
+      },
+    };
+    expect(pushNotifications.sent).toEqual([expected]);
+    expect(readAttentionRequiredMessage(ws)).toMatchObject({
+      reason: "error",
+      shouldNotify: false,
+      notification: expected,
+    });
+    expect(getLastAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows a requested alert in-app to a present client instead of pushing it", async () => {
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        provider: "claude",
+        workspaceId: WORKSPACE_ID,
+        pendingPermissions: new Map(),
+      })),
+    });
+    const ws = connectClient(server, {
+      deviceType: "web",
+      appVisible: true,
+      focusedAgentId: "agent-other",
+      lastActivityAt: new Date(),
+    });
+
+    await asInternals<WebSocketServerInternals>(server).requestAgentAttention({
+      agentId: "agent-1",
+      reason: "error",
+      message: "The nightly build failed.",
+    });
+
+    const event = readAttentionRequiredMessage(ws);
+    expect(event.shouldNotify).toBe(true);
+    expect(event.notification.body).toBe("The nightly build failed.");
+    expect(pushNotifications.sent).toEqual([]);
+  });
+
+  it("delivers every requested finish alert, even while a finish is unread", async () => {
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        provider: "claude",
+        workspaceId: WORKSPACE_ID,
+        pendingPermissions: new Map(),
+      })),
+    });
+    const internals = asInternals<WebSocketServerInternals>(server);
+    const unreadFinish = new Date(1_000);
+    const finish = () =>
+      internals.broadcastAgentAttention({
+        agentId: "agent-1",
+        provider: "claude",
+        reason: "finished",
+        attentionTimestamp: unreadFinish,
+      });
+
+    await finish();
+    await internals.requestAgentAttention({
+      agentId: "agent-1",
+      reason: "finished",
+      message: "Review is ready.",
+    });
+    await internals.requestAgentAttention({
+      agentId: "agent-1",
+      reason: "finished",
+      message: "Review is still waiting.",
+    });
+    await finish();
+
+    expect(pushNotifications.sent.map((payload) => payload.body)).toEqual([
+      "Finished working.",
+      "Review is ready.",
+      "Review is still waiting.",
+    ]);
+  });
+
+  it("rejects a request for an agent the daemon has not loaded", async () => {
+    const { server, pushNotifications } = createServer({ getAgent: vi.fn(() => undefined) });
+    const ws = connectClient(server, null);
+
+    await expect(
+      asInternals<WebSocketServerInternals>(server).requestAgentAttention({
+        agentId: "missing-agent",
+        reason: "error",
+        message: "The nightly build failed.",
+      }),
+    ).rejects.toThrow("Agent not found: missing-agent");
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(pushNotifications.sent).toEqual([]);
+  });
+
+  it("pushes only the fixed text for a requested alert on an agent that redacts notifications", async () => {
+    const getLastAssistantMessage = vi.fn(async () => "Rotated the key in `secrets.env`.");
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        provider: "claude",
+        workspaceId: WORKSPACE_ID,
+        labels: { "paseo.redact-notifications": "true" },
+        pendingPermissions: new Map(),
+      })),
+      getLastAssistantMessage,
+    });
+    const ws = connectClient(server, null);
+
+    await asInternals<WebSocketServerInternals>(server).requestAgentAttention({
+      agentId: "agent-1",
+      reason: "error",
+      message: "Rotated the key in secrets.env.",
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      expect.objectContaining({ title: "Agent needs attention", body: "Encountered an error." }),
+    ]);
+    expect(readAttentionRequiredMessage(ws).notification.body).toBe("Encountered an error.");
+    expect(getLastAssistantMessage).not.toHaveBeenCalled();
   });
 });

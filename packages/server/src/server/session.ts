@@ -44,6 +44,7 @@ import {
   serializeAgentStreamEvent,
   type AgentSnapshotPayload,
   type AgentAttachment,
+  type AgentAttentionRequestMessage,
   type FirstAgentContext,
   type SessionInboundMessage,
   type SessionOutboundMessage,
@@ -494,6 +495,8 @@ const nodeSessionFileSystem: SessionFileSystem = {
 // Stub types for features under development (modules not yet available)
 type AgentMcpTransportFactory = () => Promise<unknown>;
 
+export type AgentAttentionRequest = Omit<AgentAttentionRequestMessage, "type" | "requestId">;
+
 export interface SessionOptions {
   connectedHosts?: ConnectedHosts;
   sourceId?: string;
@@ -513,6 +516,8 @@ export interface SessionOptions {
   publishWorkspaceArchiveUpdates?: (workspaceIds: Iterable<string>) => Promise<void>;
   onWorkspaceRecovered?: (workspace: PersistedWorkspaceRecord) => Promise<void>;
   publishScriptStatusUpdate?: (message: ScriptStatusUpdateMessage) => void;
+  // Raises attention on an agent with the caller's text; rejects for an agent the daemon has not loaded.
+  requestAgentAttention?: (request: AgentAttentionRequest) => Promise<void>;
   logger: pino.Logger;
   downloadTokenStore: DownloadTokenStore;
   pushNotifications: PushNotifications;
@@ -809,6 +814,7 @@ export class Session {
   private readonly getTransportBufferedAmount: (source?: object) => number | null;
   private readonly onLifecycleIntent: ((intent: SessionLifecycleIntent) => void) | null;
   private readonly onWorkspaceArchiveUpdate: SessionOptions["publishWorkspaceArchiveUpdates"];
+  private readonly requestAgentAttention: SessionOptions["requestAgentAttention"];
   private readonly onWorkspaceRecovered:
     | ((workspace: PersistedWorkspaceRecord) => Promise<void>)
     | null;
@@ -989,6 +995,7 @@ export class Session {
     this.getTransportBufferedAmount = getTransportBufferedAmount ?? (() => 0);
     this.onLifecycleIntent = onLifecycleIntent ?? null;
     this.onWorkspaceArchiveUpdate = options.publishWorkspaceArchiveUpdates;
+    this.requestAgentAttention = options.requestAgentAttention;
     this.onWorkspaceRecovered = onWorkspaceRecovered ?? null;
     this.pushNotifications = pushNotifications;
     this.paseoHome = paseoHome;
@@ -2769,8 +2776,15 @@ export class Session {
     return (
       this.dispatchAgentRewindMessage(msg, source) ??
       this.dispatchAgentRelationshipMessage(msg) ??
+      this.dispatchAgentAttentionMessage(msg) ??
       this.dispatchAgentTimelineMessage(msg, source)
     );
+  }
+
+  private dispatchAgentAttentionMessage(msg: SessionInboundMessage): Promise<void> | undefined {
+    return msg.type === "agent_attention_request"
+      ? this.handleAgentAttentionRequest(msg)
+      : undefined;
   }
 
   private dispatchHostServiceMessage(msg: SessionInboundMessage): Promise<void> | undefined {
@@ -4071,6 +4085,35 @@ export class Session {
           agentId,
           accepted: false,
           error: getErrorMessageOr(error, "Failed to update agent"),
+        },
+      });
+    }
+  }
+
+  private async handleAgentAttentionRequest(msg: AgentAttentionRequestMessage): Promise<void> {
+    const { agentId, reason, requestId } = msg;
+    this.sessionLogger.info({ agentId, reason, requestId }, "session: agent_attention_request");
+    try {
+      if (!this.requestAgentAttention) {
+        throw new Error("This host cannot raise agent attention");
+      }
+      await this.requestAgentAttention({ agentId, reason, message: msg.message });
+      this.emit({
+        type: "agent_attention_response",
+        payload: { requestId, agentId, accepted: true, error: null },
+      });
+    } catch (error) {
+      this.sessionLogger.warn(
+        { err: error, agentId, requestId },
+        "session: agent_attention_request failed",
+      );
+      this.emit({
+        type: "agent_attention_response",
+        payload: {
+          requestId,
+          agentId,
+          accepted: false,
+          error: getErrorMessageOr(error, "Failed to raise agent attention"),
         },
       });
     }

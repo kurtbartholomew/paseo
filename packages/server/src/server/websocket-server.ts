@@ -30,7 +30,7 @@ import { getCachedHostMachineKind } from "./host-machine-kind.js";
 import { getHostName } from "./host-name.js";
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import type { AgentManager, AgentMetricsSnapshot } from "./agent/agent-manager.js";
+import type { AgentManager, AgentMetricsSnapshot, ManagedAgent } from "./agent/agent-manager.js";
 import type { AgentStorage } from "./agent/agent-storage.js";
 import type { DownloadTokenStore } from "./file-download/token-store.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
@@ -63,6 +63,7 @@ import type { HostnamesConfig } from "./hostnames.js";
 import { isHostnameAllowed } from "./hostnames.js";
 import {
   Session,
+  type AgentAttentionRequest,
   type SessionLifecycleIntent,
   type SessionOptions,
   type SessionRuntimeMetrics,
@@ -217,6 +218,16 @@ type WebSocketRuntimeDiagnosticPayload = WebSocketRuntimeDiagnosticSnapshot<
 type WebSocketRuntimeMetricsLogPayload = Omit<WebSocketRuntimeDiagnosticPayload, "collectedAt">;
 
 type TerminalAttentionReason = "finished" | "needs_input";
+
+interface AgentAttentionBroadcast {
+  agentId: string;
+  provider: AgentProvider;
+  reason: "finished" | "error" | "permission";
+  attentionTimestamp: Date | null;
+  // Set for an alert a client or plugin asked for: its message is the body, it is push-eligible for
+  // any reason, and it is always delivered, never folded into an unread finish.
+  requested?: { message: string };
+}
 
 function resolveTerminalAttentionReason(input: {
   attentionReason?: TerminalActivity["attentionReason"];
@@ -1724,6 +1735,7 @@ export class VoiceAssistantWebSocketServer {
         );
       },
       publishScriptStatusUpdate: (message) => this.publishScriptStatusUpdate(message),
+      requestAgentAttention: (request) => this.requestAgentAttention(request),
       downloadTokenStore: this.downloadTokenStore,
       pushNotifications: this.pushNotifications,
       paseoHome: this.paseoHome,
@@ -2966,12 +2978,26 @@ export class VoiceAssistantWebSocketServer {
     };
   }
 
-  private async broadcastAgentAttention(params: {
-    agentId: string;
-    provider: AgentProvider;
-    reason: "finished" | "error" | "permission";
-    attentionTimestamp: Date | null;
-  }): Promise<void> {
+  // A client or plugin raising attention on an agent with its own text. The alert goes out like a
+  // status-driven one, under the reason's fixed title, but it may push whatever the reason.
+  private async requestAgentAttention(request: AgentAttentionRequest): Promise<void> {
+    const agent = this.agentManager.getAgent(request.agentId);
+    if (!agent) {
+      throw new Error(`Agent not found: ${request.agentId}`);
+    }
+    if (!agent.workspaceId) {
+      throw new Error(`Agent has no workspace: ${request.agentId}`);
+    }
+    await this.broadcastAgentAttention({
+      agentId: request.agentId,
+      provider: agent.provider,
+      reason: request.reason,
+      attentionTimestamp: new Date(),
+      requested: { message: request.message },
+    });
+  }
+
+  private async broadcastAgentAttention(params: AgentAttentionBroadcast): Promise<void> {
     const agent = this.agentManager.getAgent(params.agentId);
     if (!agent?.workspaceId) {
       return;
@@ -2998,30 +3024,12 @@ export class VoiceAssistantWebSocketServer {
       this.sessions.get(ws)?.session.wantsSourceNotification(ws, "agent_attention_required"),
     );
     const allStates = notificationEntries.map((e) => e.state);
-    const nowMs = Date.now();
-    const redactContent = shouldRedactNotifications(agent.labels, agent.metadata);
-    const assistantMessage = redactContent
-      ? null
-      : await this.agentManager.getLastAssistantMessage(params.agentId);
-    const notification = buildAgentAttentionNotificationPayload({
-      reason: params.reason,
-      serverId: this.serverId,
-      workspaceId: agent.workspaceId,
-      agentId: params.agentId,
-      assistantMessage,
-      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
-      redactContent,
-    });
-
-    const plan = this.planOncePerUnreadFinish(
+    const notification = await this.buildAgentAttentionNotification(
       params,
-      computeNotificationPlan({
-        allStates,
-        focusTarget: { kind: "agent", id: params.agentId },
-        pushEligible: isPushEligibleAttentionReason(params.reason),
-        nowMs,
-      }),
+      agent,
+      agent.workspaceId,
     );
+    const plan = this.planAgentAttention(params, allStates);
 
     if (plan.shouldPush) {
       void this.pushNotificationSender.send(notification).catch((err) => {
@@ -3070,6 +3078,42 @@ export class VoiceAssistantWebSocketServer {
         this.sessions.get(ws)!.session.publishToSource(ws, message.message);
       else this.sendToClient(ws, message);
     }
+  }
+
+  private async buildAgentAttentionNotification(
+    params: AgentAttentionBroadcast,
+    agent: ManagedAgent,
+    workspaceId: string,
+  ) {
+    const redactContent = shouldRedactNotifications(agent.labels, agent.metadata);
+    const customMessage = params.requested?.message ?? null;
+    const assistantMessage =
+      redactContent || customMessage !== null
+        ? null
+        : await this.agentManager.getLastAssistantMessage(params.agentId);
+    return buildAgentAttentionNotificationPayload({
+      reason: params.reason,
+      serverId: this.serverId,
+      workspaceId,
+      agentId: params.agentId,
+      assistantMessage,
+      permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
+      customMessage,
+      redactContent,
+    });
+  }
+
+  private planAgentAttention(
+    params: AgentAttentionBroadcast,
+    allStates: ClientPresenceState[],
+  ): NotificationPlan {
+    const plan = computeNotificationPlan({
+      allStates,
+      focusTarget: { kind: "agent", id: params.agentId },
+      pushEligible: params.requested !== undefined || isPushEligibleAttentionReason(params.reason),
+      nowMs: Date.now(),
+    });
+    return params.requested ? plan : this.planOncePerUnreadFinish(params, plan);
   }
 
   // An agent can finish many times while its first finish is unread, for example when it

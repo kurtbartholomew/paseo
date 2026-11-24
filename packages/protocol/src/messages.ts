@@ -1068,6 +1068,17 @@ export const UpdateAgentRequestMessageSchema = z.object({
   requestId: z.string(),
 });
 
+// Raises attention on an agent with the caller's own text as the notification body. The daemon sends
+// the usual agent_attention_required alert under the reason's fixed title, and may push it for any
+// reason, error included.
+export const AgentAttentionRequestMessageSchema = z.object({
+  type: z.literal("agent_attention_request"),
+  agentId: z.string(),
+  reason: z.enum(["finished", "error", "permission"]),
+  message: z.string(),
+  requestId: z.string(),
+});
+
 // The daemon accepts only image bytes chosen or acquired by the client. It must
 // never fetch a user-provided URL on the host's network.
 export const ProjectIconSourceSchema = z.discriminatedUnion("type", [
@@ -2301,6 +2312,11 @@ export const AgentRewindResponseMessageSchema = z.object({
 
 export const UpdateAgentResponseMessageSchema = z.object({
   type: z.literal("update_agent_response"),
+  payload: AgentActionResponsePayloadSchema,
+});
+
+export const AgentAttentionResponseMessageSchema = z.object({
+  type: z.literal("agent_attention_response"),
   payload: AgentActionResponsePayloadSchema,
 });
 
@@ -3602,6 +3618,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ArchiveAgentRequestMessageSchema,
   CloseItemsRequestMessageSchema,
   UpdateAgentRequestMessageSchema,
+  AgentAttentionRequestMessageSchema,
   ProjectRenameRequestSchema,
   ProjectIconSetRequestSchema,
   ProjectRemoveRequestSchema,
@@ -7821,6 +7838,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   AgentDetachResponseMessageSchema,
   AgentRewindResponseMessageSchema,
   UpdateAgentResponseMessageSchema,
+  AgentAttentionResponseMessageSchema,
   ProjectRenameResponseSchema,
   ProjectIconSetResponseSchema,
   ProjectRemoveResponseSchema,
@@ -8038,6 +8056,7 @@ export type AgentConfigApplyResponseMessage = z.infer<typeof AgentConfigApplyRes
 export type AgentDetachResponseMessage = z.infer<typeof AgentDetachResponseMessageSchema>;
 export type AgentRewindResponseMessage = z.infer<typeof AgentRewindResponseMessageSchema>;
 export type UpdateAgentResponseMessage = z.infer<typeof UpdateAgentResponseMessageSchema>;
+export type AgentAttentionResponseMessage = z.infer<typeof AgentAttentionResponseMessageSchema>;
 export type ProjectRenameResponse = z.infer<typeof ProjectRenameResponseSchema>;
 export type ProjectIconSetResponse = z.infer<typeof ProjectIconSetResponseSchema>;
 export type ProjectRemoveResponse = z.infer<typeof ProjectRemoveResponseSchema>;
@@ -8225,6 +8244,7 @@ export type LoopStopRequest = z.infer<typeof LoopStopRequestSchema>;
 export type ResumeAgentRequestMessage = z.infer<typeof ResumeAgentRequestMessageSchema>;
 export type DeleteAgentRequestMessage = z.infer<typeof DeleteAgentRequestMessageSchema>;
 export type UpdateAgentRequestMessage = z.infer<typeof UpdateAgentRequestMessageSchema>;
+export type AgentAttentionRequestMessage = z.infer<typeof AgentAttentionRequestMessageSchema>;
 export type ProjectIconSource = z.infer<typeof ProjectIconSourceSchema>;
 export type ProjectRenameRequest = z.infer<typeof ProjectRenameRequestSchema>;
 export type ProjectIconSetRequest = z.infer<typeof ProjectIconSetRequestSchema>;
