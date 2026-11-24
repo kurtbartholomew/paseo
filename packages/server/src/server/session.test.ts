@@ -355,6 +355,7 @@ interface SessionForTestOptions {
   pluginRuntime?: SessionOptions["pluginRuntime"];
   orchestrationSkills?: SessionOptions["orchestrationSkills"];
   workspaceLabelService?: WorkspaceLabelService;
+  requestAgentAttention?: SessionOptions["requestAgentAttention"];
 }
 
 function createSessionForTest(options: SessionForTestOptions = {}): Session {
@@ -468,6 +469,7 @@ function createSessionForTest(options: SessionForTestOptions = {}): Session {
     daemonVersion: options.daemonVersion,
     daemonRuntimeConfig: options.daemonRuntimeConfig,
     permissions: options.permissions ?? OWNER_PERMISSIONS,
+    requestAgentAttention: options.requestAgentAttention,
   };
   if (options.sendToSource) sessionOptions.onMessageToSource = options.sendToSource;
   return new Session(sessionOptions);
@@ -1809,6 +1811,78 @@ describe("agent detach RPC", () => {
         accepted: true,
         error: null,
       },
+    });
+  });
+});
+
+describe("agent attention requests", () => {
+  const request = {
+    type: "agent_attention_request" as const,
+    agentId: "agent-1",
+    reason: "error" as const,
+    message: "The nightly build failed.",
+    requestId: "attention-1",
+  };
+
+  test("raises attention through the daemon and acknowledges once it is sent", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const requestAgentAttention = vi.fn(async () => undefined);
+    const session = createSessionForTest({ messages, requestAgentAttention });
+
+    await session.handleMessage(request);
+
+    expect(requestAgentAttention).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      reason: "error",
+      message: "The nightly build failed.",
+    });
+    expect(messages).toContainEqual({
+      type: "agent_attention_response",
+      payload: { requestId: "attention-1", agentId: "agent-1", accepted: true, error: null },
+    });
+  });
+
+  test("reports the daemon's refusal in the response", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const session = createSessionForTest({
+      messages,
+      requestAgentAttention: vi.fn(async () => {
+        throw new Error("Agent not found: agent-1");
+      }),
+    });
+
+    await session.handleMessage(request);
+
+    expect(messages).toContainEqual({
+      type: "agent_attention_response",
+      payload: {
+        requestId: "attention-1",
+        agentId: "agent-1",
+        accepted: false,
+        error: "Agent not found: agent-1",
+      },
+    });
+  });
+
+  test("needs workspace write permission", async () => {
+    const messages: SessionOutboundMessage[] = [];
+    const requestAgentAttention = vi.fn(async () => undefined);
+    const session = createSessionForTest({
+      messages,
+      requestAgentAttention,
+      permissions: ["workspace.read"],
+    });
+
+    await session.handleMessage(request);
+
+    expect(requestAgentAttention).not.toHaveBeenCalled();
+    expect(messages).toContainEqual({
+      type: "rpc_error",
+      payload: expect.objectContaining({
+        requestId: "attention-1",
+        requestType: "agent_attention_request",
+        code: "access_denied",
+      }),
     });
   });
 });

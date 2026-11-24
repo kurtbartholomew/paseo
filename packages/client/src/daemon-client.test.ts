@@ -6376,6 +6376,85 @@ test("detaches an agent through the namespaced detach RPC", async () => {
   await expect(promise).resolves.toBeUndefined();
 });
 
+test("raises agent attention with a message and an error reason by default", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.requestAgentAttention("agent-1", { message: "The nightly build failed." });
+
+  expect(mock.sent).toHaveLength(1);
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toEqual({
+    type: "agent_attention_request",
+    agentId: "agent-1",
+    reason: "error",
+    message: "The nightly build failed.",
+    requestId: expect.any(String),
+  });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent_attention_response",
+      payload: { requestId: request.requestId, agentId: "agent-1", accepted: true, error: null },
+    }),
+  );
+
+  await expect(promise).resolves.toBeUndefined();
+});
+
+test("rejects agent attention the daemon refuses", async () => {
+  const logger = createMockLogger();
+  const mock = createMockTransport();
+
+  const client = new DaemonClient({
+    url: "ws://test",
+    clientId: "clsk_unit_test",
+    logger,
+    reconnect: { enabled: false },
+    transportFactory: () => mock.transport,
+  });
+  clients.push(client);
+
+  const connectPromise = client.connect();
+  mock.triggerOpen();
+  await connectPromise;
+
+  const promise = client.requestAgentAttention("missing-agent", {
+    message: "Review is ready.",
+    reason: "finished",
+  });
+
+  const request = parseSentFrame(mock.sent[0]);
+  expect(request).toMatchObject({ type: "agent_attention_request", reason: "finished" });
+
+  mock.triggerMessage(
+    wrapSessionMessage({
+      type: "agent_attention_response",
+      payload: {
+        requestId: request.requestId,
+        agentId: "missing-agent",
+        accepted: false,
+        error: "Agent not found: missing-agent",
+      },
+    }),
+  );
+
+  await expect(promise).rejects.toThrow("Agent not found: missing-agent");
+});
+
 test("sends active-scoped fetch_agents_request", async () => {
   const logger = createMockLogger();
   const mock = createMockTransport();

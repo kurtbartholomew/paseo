@@ -3707,6 +3707,30 @@ export class DaemonClient {
     }
   }
 
+  /**
+   * Raises attention on an agent with your own text as the notification body, under the reason's
+   * fixed title. The daemon may push it whatever the reason. Resolves once the daemon has sent it.
+   */
+  async requestAgentAttention(
+    agentId: string,
+    options: { message: string; reason?: "error" | "finished" | "permission" },
+    requestId?: string,
+  ): Promise<void> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId,
+      message: {
+        type: "agent_attention_request",
+        agentId,
+        reason: options.reason ?? "error",
+        message: options.message,
+      },
+      responseType: "agent_attention_response",
+    });
+    if (!payload.accepted) {
+      throw new Error(payload.error ?? "requestAgentAttention rejected");
+    }
+  }
+
   async renameProject(
     projectId: string,
     customName: string | null,

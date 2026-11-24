@@ -23,6 +23,9 @@ interface BuildAgentAttentionNotificationPayloadInput {
   agentId: string;
   assistantMessage?: string | null;
   permissionRequest?: NotificationPermissionRequest | null;
+  // A caller's own text for the body, whatever the reason: it replaces the assistant message or the
+  // permission details. Blank text falls back to the fixed body.
+  customMessage?: string | null;
 }
 
 export interface NotificationPermissionRequest {
@@ -183,6 +186,9 @@ function resolveAgentAttentionTitle(reason: AgentAttentionReason): string {
 function resolveAgentAttentionPreview(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): string | null {
+  if (typeof input.customMessage === "string") {
+    return buildNotificationPreview(input.customMessage);
+  }
   if (input.reason === "finished") {
     return buildNotificationPreview(input.assistantMessage);
   }

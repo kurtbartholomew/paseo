@@ -363,6 +363,43 @@ describe("agent detach RPC", () => {
   });
 });
 
+describe("agent attention request RPC", () => {
+  test("parses the request and its correlated response", () => {
+    const request = SessionInboundMessageSchema.parse({
+      type: "agent_attention_request",
+      agentId: "agent-1",
+      reason: "error",
+      message: "The nightly build failed.",
+      requestId: "req-attention",
+    });
+    const response = SessionOutboundMessageSchema.parse({
+      type: "agent_attention_response",
+      payload: { requestId: "req-attention", agentId: "agent-1", accepted: true, error: null },
+    });
+
+    expect(request).toEqual({
+      type: "agent_attention_request",
+      agentId: "agent-1",
+      reason: "error",
+      message: "The nightly build failed.",
+      requestId: "req-attention",
+    });
+    expect(response.type).toBe("agent_attention_response");
+  });
+
+  test("rejects a request without a known reason", () => {
+    const base = {
+      type: "agent_attention_request",
+      agentId: "agent-1",
+      message: "Hi",
+      requestId: "r",
+    };
+
+    expect(SessionInboundMessageSchema.safeParse(base).success).toBe(false);
+    expect(SessionInboundMessageSchema.safeParse({ ...base, reason: "idle" }).success).toBe(false);
+  });
+});
+
 describe("agent setting action responses", () => {
   test("parses optional provider notices on mode and thinking responses", () => {
     const mode = SessionOutboundMessageSchema.parse({

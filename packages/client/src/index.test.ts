@@ -310,6 +310,32 @@ test("agent handles send permission responses for their agent", async () => {
   await client.close();
 });
 
+test("agent handles raise attention for their agent and resolve on the daemon's ack", async () => {
+  const { client, ws } = await connectClient();
+
+  const pending = client.agents.ref("agent_sdk").requestAttention({
+    message: "The nightly build failed.",
+  });
+
+  const request = parseSentSessionMessage(ws.sent.at(-1));
+  expect(request).toEqual({
+    type: "agent_attention_request",
+    agentId: "agent_sdk",
+    reason: "error",
+    message: "The nightly build failed.",
+    requestId: expect.any(String),
+  });
+  ws.message(
+    sessionMessage({
+      type: "agent_attention_response",
+      payload: { requestId: request.requestId, agentId: "agent_sdk", accepted: true, error: null },
+    }),
+  );
+  await expect(pending).resolves.toBeUndefined();
+
+  await client.close();
+});
+
 test("project actions list registered projects through the existing RPC", async () => {
   const { client, ws } = await connectClient();
 

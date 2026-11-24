@@ -323,6 +323,11 @@ export interface PaseoAgentRunOptions extends PaseoAgentSendOptions {
 export type PaseoAgentRunResult = WaitForFinishResult;
 export type PaseoAgentPermissionResponse = AgentPermissionResponse;
 
+export interface PaseoAgentRequestAttentionOptions {
+  message: string;
+  reason?: "error" | "finished" | "permission";
+}
+
 export interface PaseoAgentRespondToPermissionOptions {
   requestId: string;
   response: PaseoAgentPermissionResponse;
@@ -466,6 +471,13 @@ export interface PaseoAgentHandle {
   commands(options?: PaseoAgentCommandsOptions): Promise<PaseoAgentCommandsResult>;
   archive(): Promise<{ archivedAt: string }>;
   detach(): Promise<void>;
+  /**
+   * Raises attention on the agent with `message` as the notification body, under Paseo's title for
+   * `reason` (default `"error"`). It reaches the user's most recent client in-app, or as a push when
+   * none is present, for any reason. Resolves once the daemon has sent it; rejects for an agent the
+   * daemon has not loaded.
+   */
+  requestAttention(options: PaseoAgentRequestAttentionOptions): Promise<void>;
   subscribe(handler: (update: PaseoAgentUpdate) => void): () => void;
 }
 
@@ -1194,6 +1206,9 @@ function createAgentHandleFactory(
       },
       detach: async () => {
         await daemonClient.detachAgent(id);
+      },
+      requestAttention: async (options) => {
+        await daemonClient.requestAgentAttention(id, options);
       },
       subscribe: (handler) =>
         listen((update) => {
