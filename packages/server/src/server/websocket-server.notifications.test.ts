@@ -314,6 +314,32 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
     expect(getLastAssistantMessage).toHaveBeenCalledWith("agent-2");
   });
 
+  it("keeps message text out of a push for an agent labelled to redact notifications", async () => {
+    const getLastAssistantMessage = vi.fn(async () => "Rotated the key in `secrets.env`.");
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        config: { title: null },
+        cwd: "/tmp/worktree",
+        workspaceId: WORKSPACE_ID,
+        labels: { "paseo.redact-notifications": "true" },
+        pendingPermissions: new Map(),
+      })),
+      getLastAssistantMessage,
+    });
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-3",
+      provider: "claude",
+      reason: "finished",
+      attentionTimestamp: new Date(),
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      expect.objectContaining({ title: "Agent finished", body: "Finished working." }),
+    ]);
+    expect(getLastAssistantMessage).not.toHaveBeenCalled();
+  });
+
   it("routes a hidden stale focused browser tab's notification to the present Electron web client", async () => {
     const { server, pushNotifications } = createServer();
     const nowMs = Date.now();

@@ -90,6 +90,35 @@ describe("buildAgentAttentionNotificationPayload", () => {
     expect(payload.body).toBe('{"command":"echo hello"} - Hook requires approval');
   });
 
+  it("keeps message and permission text out of redacted notifications", () => {
+    const base = { serverId: "srv-1", workspaceId: "workspace-1", agentId: "agent-1" };
+    const finished = buildAgentAttentionNotificationPayload({
+      ...base,
+      reason: "finished",
+      assistantMessage: "Rotated the key in `secrets.env`.",
+      redactContent: true,
+    });
+    const permission = buildAgentAttentionNotificationPayload({
+      ...base,
+      reason: "permission",
+      permissionRequest: {
+        id: "perm-1",
+        provider: "claude",
+        name: "Bash",
+        kind: "tool",
+        input: { command: "cat secrets.env" },
+        title: "Approve command",
+      },
+      redactContent: true,
+    });
+
+    expect([finished.title, finished.body]).toEqual(["Agent finished", "Finished working."]);
+    expect([permission.title, permission.body]).toEqual([
+      "Agent needs permission",
+      "Permission requested.",
+    ]);
+  });
+
   it("uses error-specific defaults when reason is error", () => {
     const payload = buildAgentAttentionNotificationPayload({
       reason: "error",
