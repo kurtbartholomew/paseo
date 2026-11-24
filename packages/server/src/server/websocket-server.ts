@@ -2962,6 +2962,7 @@ export class VoiceAssistantWebSocketServer {
       focusedAgentId: activity.focusedAgentId,
       focusedTerminalId: activity.focusedTerminalId,
       lastActivityAtMs: activity.lastActivityAt.getTime(),
+      deviceType: activity.deviceType,
     };
   }
 

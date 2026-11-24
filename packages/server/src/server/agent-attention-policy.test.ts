@@ -74,6 +74,46 @@ describe("computeNotificationPlan", () => {
     ).toEqual({ inAppRecipientIndex: 0, shouldPush: false });
   });
 
+  it("pushes when the only recently active client is a backgrounded phone", () => {
+    const backgroundPhone = state({
+      appVisible: false,
+      deviceType: "mobile",
+      focusedAgentId: "agent-1",
+      lastActivityAtMs: nowMs - 1000,
+    });
+
+    expect(
+      computeNotificationPlan({
+        allStates: [backgroundPhone],
+        focusTarget: { kind: "agent", id: "agent-1" },
+        pushEligible: true,
+        nowMs,
+      }),
+    ).toEqual({ inAppRecipientIndex: null, shouldPush: true });
+  });
+
+  it("sends in-app to a visible client rather than a more recently used backgrounded phone", () => {
+    const hiddenPhone = state({
+      appVisible: false,
+      deviceType: "mobile",
+      lastActivityAtMs: nowMs - 1000,
+    });
+    const visibleDesktop = state({
+      appVisible: true,
+      deviceType: "web",
+      lastActivityAtMs: nowMs - 5000,
+    });
+
+    expect(
+      computeNotificationPlan({
+        allStates: [hiddenPhone, visibleDesktop],
+        focusTarget: { kind: "agent", id: "agent-1" },
+        pushEligible: true,
+        nowMs,
+      }),
+    ).toEqual({ inAppRecipientIndex: 1, shouldPush: false });
+  });
+
   it("treats present clients focused on different agents as eligible", () => {
     expect(
       computeNotificationPlan({
