@@ -2998,7 +2998,7 @@ export class VoiceAssistantWebSocketServer {
     );
     const allStates = notificationEntries.map((e) => e.state);
     const nowMs = Date.now();
-    const redactContent = shouldRedactNotifications(agent.labels);
+    const redactContent = shouldRedactNotifications(agent.labels, agent.metadata);
     const assistantMessage = redactContent
       ? null
       : await this.agentManager.getLastAssistantMessage(params.agentId);

@@ -46,4 +46,19 @@ describe("agent label policy", () => {
     expect(shouldRedactNotifications({})).toBe(false);
     expect(shouldRedactNotifications(null)).toBe(false);
   });
+
+  test("redacts notifications for a boolean true in the agent's metadata", () => {
+    expect(shouldRedactNotifications({}, { [REDACT_NOTIFICATIONS_LABEL]: true })).toBe(true);
+    expect(shouldRedactNotifications(null, { [REDACT_NOTIFICATIONS_LABEL]: true })).toBe(true);
+    expect(shouldRedactNotifications({}, { [REDACT_NOTIFICATIONS_LABEL]: "true" })).toBe(false);
+    expect(shouldRedactNotifications({}, { [REDACT_NOTIFICATIONS_LABEL]: false })).toBe(false);
+    expect(shouldRedactNotifications({}, {})).toBe(false);
+    expect(shouldRedactNotifications({}, null)).toBe(false);
+    expect(
+      shouldRedactNotifications(
+        { [REDACT_NOTIFICATIONS_LABEL]: "true" },
+        { [REDACT_NOTIFICATIONS_LABEL]: false },
+      ),
+    ).toBe(true);
+  });
 });

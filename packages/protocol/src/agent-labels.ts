@@ -2,13 +2,19 @@ import type { AgentAddress } from "./addresses.js";
 export const PARENT_SERVER_ID_LABEL = "paseo.parent-server-id";
 export const PARENT_AGENT_ID_LABEL = "paseo.parent-agent-id";
 // "true" keeps message and permission text out of the agent's notifications; they carry only fixed text.
+// The same key set to boolean true in the agent's metadata does the same: a plugin's agent.create.before
+// hook can set metadata on a new agent, but not labels.
 export const REDACT_NOTIFICATIONS_LABEL = "paseo.redact-notifications";
 const OPEN_AGENT_TAB_LABEL_PREFIX = "paseo.open-agent-tab.";
 
 export function shouldRedactNotifications(
   labels: Record<string, unknown> | null | undefined,
+  metadata?: Record<string, unknown> | null,
 ): boolean {
-  return labels?.[REDACT_NOTIFICATIONS_LABEL] === "true";
+  return (
+    labels?.[REDACT_NOTIFICATIONS_LABEL] === "true" ||
+    metadata?.[REDACT_NOTIFICATIONS_LABEL] === true
+  );
 }
 
 export function getOpenAgentTabLabel(clientId: string): string {

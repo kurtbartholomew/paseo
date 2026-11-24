@@ -340,6 +340,69 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
     expect(getLastAssistantMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps message text out of a push for an agent whose metadata asks to redact notifications", async () => {
+    const getLastAssistantMessage = vi.fn(async () => "Rotated the key in `secrets.env`.");
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        config: { title: null },
+        cwd: "/tmp/worktree",
+        workspaceId: WORKSPACE_ID,
+        labels: {},
+        metadata: { "paseo.redact-notifications": true },
+        pendingPermissions: new Map(),
+      })),
+      getLastAssistantMessage,
+    });
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-4",
+      provider: "claude",
+      reason: "finished",
+      attentionTimestamp: new Date(),
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      expect.objectContaining({ title: "Agent finished", body: "Finished working." }),
+    ]);
+    expect(getLastAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps permission details out of a push for an agent whose metadata asks to redact notifications", async () => {
+    const { server, pushNotifications } = createServer({
+      getAgent: vi.fn(() => ({
+        config: { title: null },
+        cwd: "/tmp/worktree",
+        workspaceId: WORKSPACE_ID,
+        labels: {},
+        metadata: { "paseo.redact-notifications": true },
+        pendingPermissions: new Map([
+          [
+            "perm-1",
+            {
+              id: "perm-1",
+              provider: "claude",
+              name: "Bash",
+              kind: "tool",
+              title: "Run cat secrets.env",
+              input: { command: "cat secrets.env" },
+            },
+          ],
+        ]),
+      })),
+    });
+
+    await asInternals<WebSocketServerInternals>(server).broadcastAgentAttention({
+      agentId: "agent-5",
+      provider: "claude",
+      reason: "permission",
+      attentionTimestamp: new Date(),
+    });
+
+    expect(pushNotifications.sent).toEqual([
+      expect.objectContaining({ title: "Agent needs permission", body: "Permission requested." }),
+    ]);
+  });
+
   it("routes a hidden stale focused browser tab's notification to the present Electron web client", async () => {
     const { server, pushNotifications } = createServer();
     const nowMs = Date.now();
