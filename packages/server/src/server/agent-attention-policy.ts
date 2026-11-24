@@ -7,6 +7,7 @@ export interface ClientPresenceState {
   lastActivityAtMs: number | null;
   focusedAgentId: string | null;
   focusedTerminalId: string | null;
+  deviceType?: "web" | "mobile";
 }
 
 export type AttentionFocusTarget = { kind: "agent"; id: string } | { kind: "terminal"; id: string };
@@ -51,8 +52,13 @@ export function computeNotificationPlan({
   for (const [clientIndex, state] of allStates.entries()) {
     const clampedActivityAtMs =
       state.lastActivityAtMs === null ? null : Math.min(state.lastActivityAtMs, nowMs);
+    // A phone whose app is in the background is suspended and can't show an in-app notification, so it
+    // does not count as present however recently it was used: the user gets a push instead. A hidden
+    // desktop or browser client still counts, since it can raise its own system notification.
     const isPresent =
-      clampedActivityAtMs !== null && nowMs - clampedActivityAtMs <= PRESENCE_THRESHOLD_MS;
+      (state.appVisible || state.deviceType !== "mobile") &&
+      clampedActivityAtMs !== null &&
+      nowMs - clampedActivityAtMs <= PRESENCE_THRESHOLD_MS;
 
     if (!isPresent) {
       continue;
