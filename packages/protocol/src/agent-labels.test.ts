@@ -6,6 +6,8 @@ import {
   isDelegatedAgent,
   isOpenAgentTabLabel,
   PARENT_AGENT_ID_LABEL,
+  REDACT_NOTIFICATIONS_LABEL,
+  shouldRedactNotifications,
 } from "./agent-labels.js";
 
 describe("agent label policy", () => {
@@ -35,5 +37,13 @@ describe("agent label policy", () => {
     expect(isOpenAgentTabLabel(getOpenAgentTabLabel("client-a"))).toBe(true);
     expect(isOpenAgentTabLabel("paseo.open-agent-tab")).toBe(false);
     expect(isOpenAgentTabLabel("custom.open-agent-tab.client-a")).toBe(false);
+  });
+
+  test("redacts notifications only for an exact true label", () => {
+    expect(shouldRedactNotifications({ [REDACT_NOTIFICATIONS_LABEL]: "true" })).toBe(true);
+    expect(shouldRedactNotifications({ [REDACT_NOTIFICATIONS_LABEL]: "false" })).toBe(false);
+    expect(shouldRedactNotifications({ [REDACT_NOTIFICATIONS_LABEL]: true })).toBe(false);
+    expect(shouldRedactNotifications({})).toBe(false);
+    expect(shouldRedactNotifications(null)).toBe(false);
   });
 });

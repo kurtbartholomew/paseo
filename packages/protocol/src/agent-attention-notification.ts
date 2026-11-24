@@ -23,6 +23,8 @@ interface BuildAgentAttentionNotificationPayloadInput {
   agentId: string;
   assistantMessage?: string | null;
   permissionRequest?: NotificationPermissionRequest | null;
+  // Drop the message or permission preview and send only the fixed body.
+  redactContent?: boolean;
 }
 
 export interface NotificationPermissionRequest {
@@ -183,6 +185,9 @@ function resolveAgentAttentionTitle(reason: AgentAttentionReason): string {
 function resolveAgentAttentionPreview(
   input: BuildAgentAttentionNotificationPayloadInput,
 ): string | null {
+  if (input.redactContent) {
+    return null;
+  }
   if (input.reason === "finished") {
     return buildNotificationPreview(input.assistantMessage);
   }
