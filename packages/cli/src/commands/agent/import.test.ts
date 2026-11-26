@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveImportCwd, runImportCommand } from "./import.js";
+import { resolveImportCwd, resolveImportWorkspace, runImportCommand } from "./import.js";
 
 const importAgent = vi.fn();
 const close = vi.fn();
@@ -56,5 +56,47 @@ describe("resolveImportCwd", () => {
       cwd: "/tmp/project",
     });
     expect(result.data.provider).toBe("pi");
+  });
+
+  it("imports into the workspace named by --workspace", async () => {
+    importAgent.mockResolvedValueOnce({
+      id: "agent-2",
+      status: "idle",
+      provider: "claude",
+      cwd: "/tmp/project",
+      title: "Imported Claude session",
+    });
+
+    await runImportCommand(
+      "claude-session-1",
+      {
+        daemonTarget: { kind: "endpoint", host: "example.test:12345" },
+        provider: "claude",
+        cwd: "/tmp/project",
+        workspace: " wks_0123456789abcdef ",
+      },
+      {} as never,
+    );
+
+    expect(importAgent).toHaveBeenLastCalledWith({
+      provider: "claude",
+      sessionId: "claude-session-1",
+      cwd: "/tmp/project",
+      workspaceId: "wks_0123456789abcdef",
+    });
+  });
+});
+
+describe("resolveImportWorkspace", () => {
+  it("leaves the workspace to the daemon when --workspace is omitted", () => {
+    expect(resolveImportWorkspace(undefined)).toBeUndefined();
+  });
+
+  it("rejects an empty --workspace", () => {
+    expect(() => resolveImportWorkspace("  ")).toThrow(
+      expect.objectContaining({
+        code: "INVALID_WORKSPACE",
+      }),
+    );
   });
 });
